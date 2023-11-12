@@ -1,0 +1,252 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String @id @default(uuid())
+  userId    String @unique @map("user_id")
+  name      String
+  email     String @unique
+  avatarUrl String @map("avatar_url")
+  provider  String?
+
+  servers       Server[]
+  serverMembers Member[]
+  authors   Message[]
+  friendSender Friend[] @relation("SendFriendship")
+  friendRecever Friend[] @relation("ReceiveFriendship")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([email])
+  @@map("users")
+}
+
+model Server {
+  id         String @id @default(uuid())
+  name       String
+  imageUrl   String @map("image_url")
+  inviteCode String @map("invite_code") @db.Text
+
+  ownerId       String    @map("owner_id")
+  owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  roles         Role[]
+  serverMembers Member[]
+  channels      Channel[]
+  Sticker       Sticker[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ownerId])
+  @@map("servers")
+}
+
+model Role {
+  id          String  @id @default(uuid())
+  name        String
+  color       String  @default("#000000")
+  position    Int
+  icon        String?
+  hoist       Boolean @default(false)
+  mentionable Boolean @default(false)
+  managed     Boolean // what is this managed thing? https://discord.com/developers/docs/topics/permissions#role-object-role-structure
+  permissions Int // why the permissions are Int? because it's a bitfield, see https://discord.com/developers/docs/topics/permissions#permissions-bitwise-permission-flags
+
+  serverId          String              @map("server_id")
+  server            Server              @relation(fields: [serverId], references: [id], onDelete: Cascade)
+  serverMemberRoles ServerMemberRoles[]
+  ServerMember      Member[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([serverId])
+  @@map("roles")
+}
+
+model Member {
+  id       String @id @default(uuid())
+  nickname String
+  userId   String @map("user_id")
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  serverId String @map("server_id")
+  server   Server @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  joinedAt          DateTime            @default(now()) @map("joined_at")
+  roles             Role[]
+  serverMemberRoles ServerMemberRoles[] @relation("server_member")
+  signedRoles       ServerMemberRoles[] @relation("signed_by")
+  createdChannels   Channel[]           @relation("created_by")
+
+  @@index([userId, serverId])
+  @@map("members")
+}
+
+model ServerMemberRoles {
+  serverMemberId String @map("server_member_id")
+  serverMember   Member @relation(fields: [serverMemberId], references: [id], onDelete: Cascade, name: "server_member")
+
+  roleId String @map("role_id")
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  signedAt   DateTime @default(now()) @map("signed_at")
+  signedById String?  @map("signed_by_id")
+  signedBy   Member?  @relation(fields: [signedById], references: [id], onDelete: SetNull, name: "signed_by")
+
+  @@id([serverMemberId, roleId])
+  @@map("server_member_roles")
+}
+
+enum ChannelType {
+  GUILD_TEXT
+  DM
+  GUILD_VOICE
+  GROUP_DM
+}
+
+model Channel {
+  id    String      @id @default(uuid())
+  name  String
+  type  ChannelType @default(GUILD_TEXT)
+  topic String?
+
+  messages      Message[]
+  messagesCount Int       @default(0) @map("messages_count")
+  lastMessageId String?   @map("last_message_id")
+  lastMessage   Message?  @relation(fields: [lastMessageId], references: [id], onDelete: SetNull, name: "last_message")
+
+  position Int?
+  icon     String?
+  parentId String? @map("parent_id") // what is parent_id? https://discord.com/developers/docs/resources/channel#channel-object-channel-structure
+  serverId String  @map("server_id")
+  server   Server  @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdById String?  @map("created_by_id")
+  createdBy   Member?  @relation(fields: [createdById], references: [id], onDelete: SetNull, name: "created_by")
+
+  @@index([serverId])
+  @@index([createdById])
+  @@map("channels")
+}
+
+enum MessageType {
+  DEFAULT
+  RECIPIENT_ADD
+  RECIPIENT_REMOVE
+  CALL
+  CHANNEL_NAME_CHANGE
+  CHANNEL_ICON_CHANGE
+  CHANNEL_PINNED_MESSAGE
+  GUILD_MEMBER_JOIN
+  USER_PREMIUM_GUILD_SUBSCRIPTION
+  USER_PREMIUM_GUILD_SUBSCRIPTION_TIER_1
+  USER_PREMIUM_GUILD_SUBSCRIPTION_TIER_2
+  USER_PREMIUM_GUILD_SUBSCRIPTION_TIER_3
+  CHANNEL_FOLLOW_ADD
+  GUILD_DISCOVERY_DISQUALIFIED
+  GUILD_DISCOVERY_REQUALIFIED
+  GUILD_DISCOVERY_GRACE_PERIOD_INITIAL_WARNING
+  GUILD_DISCOVERY_GRACE_PERIOD_FINAL_WARNING
+  THREAD_CREATED
+  REPLY
+  APPLICATION_COMMAND
+  THREAD_STARTER_MESSAGE
+  GUILD_INVITE_REMINDER
+}
+
+model Message {
+  id        String  @id @default(uuid())
+  content   String
+  channelId String  @map("channel_id")
+  channel   Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  authorId  String  @map("author_id") // what is author_id? https://discord.com/developers/docs/resources/channel#message-object-message-structure
+  author    User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  type  MessageType @default(DEFAULT) @map("message_type") // what is message_type? https://discord.com/developers/docs/resources/channel#message-object-message-types
+  flags Int?        @default(0) // what is flags? https://discord.com/developers/docs/resources/channel#message-object-message-flags
+
+  attachments  Attachment[]
+  stickerItems StickerItem[]
+
+  lastMessageInChannel Channel[] @relation("last_message")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([channelId])
+  @@map("messages")
+}
+
+model Attachment {
+  id        String  @id @default(uuid())
+  messageId String  @map("message_id")
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  name      String
+  url       String
+  proxyUrl  String  @map("proxy_url")
+  size      Int
+  height    Int?
+  width     Int?
+
+  @@index([messageId])
+  @@map("attachments")
+}
+
+
+model Friend {
+  senderId    String @map("sender_id")
+  receiverId  String @map("receiver_id")
+  status      String @default("pending")
+
+  sender   User @relation(name: "SendFriendship",fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation(name: "ReceiveFriendship",fields: [receiverId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([senderId, receiverId])
+  
+  @@index([senderId])
+  @@index([receiverId])
+  @@map("friends")
+}
+
+model StickerItem {
+  id        String  @id @default(uuid())
+  messageId String  @map("message_id")
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  stickerId String  @map("sticker_id")
+  sticker   Sticker @relation(fields: [stickerId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("sticker_items")
+}
+
+model Sticker {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  tags        Json
+  asset       String
+  formatType  String   @map("format_type")
+  available   Boolean
+  guildId     String?  @map("guild_id")
+  guild       Server?  @relation(fields: [guildId], references: [id], onDelete: SetNull)
+
+  stickerItems StickerItem[]
+
+  @@map("stickers")
+}
